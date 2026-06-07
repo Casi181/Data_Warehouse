@@ -8,6 +8,7 @@ import Paper from "@mui/material/Paper";
 import type { ChatMessage as ChatMsg } from "@/lib/types";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ChatInput from "@/components/chat/ChatInput";
+import { sendChatMessage } from "@/lib/api";
 
 export default function AssistantPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([
@@ -15,7 +16,7 @@ export default function AssistantPage() {
       id: "1",
       role: "assistant",
       content:
-        "Hello! I'm the Casi Financial Data Warehouse assistant. I can help you explore assets, data sources, and time series data. What would you like to know?",
+        "Hello! I can help you explore assets, data sources, and time series data. What would you like to know?",
       timestamp: new Date(),
     },
   ]);
@@ -31,17 +32,26 @@ export default function AssistantPage() {
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
-    // Simulated response - in production, this would connect to the MCP server
-    setTimeout(() => {
-      const reply: ChatMsg = {
+    try {
+      const reply = await sendChatMessage(text);
+      const assistantMsg: ChatMsg = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `I understand you're asking about "${text}". In a full deployment, I would use the MCP server tools to query the data warehouse and provide real-time answers. The MCP server supports:\n\n- list_assets: Browse available financial assets\n- get_asset_details: View asset version history\n- list_data_sources: See available data providers\n- get_time_series_data: Query time series within date ranges\n\nTo enable live queries, connect this interface to the MCP server running on the backend.`,
+        content: reply,
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, reply]);
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (e: any) {
+      const errorMsg: ChatMsg = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `Sorry, I encountered an error: ${e.message}. Please try again.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (

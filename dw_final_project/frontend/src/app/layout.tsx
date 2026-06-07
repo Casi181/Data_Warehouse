@@ -4,7 +4,6 @@ import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import Box from "@mui/material/Box";
 import theme from "@/lib/theme";
-import AppBar from "@/components/layout/AppBar";
 import DrawerNav from "@/components/layout/DrawerNav";
 import PageContainer from "@/components/layout/PageContainer";
 import "@/styles/globals.css";
@@ -25,7 +24,6 @@ export default function RootLayout({
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <Box sx={{ display: "flex" }}>
-            <AppBar />
             <DrawerNav />
             <PageContainer>{children}</PageContainer>
           </Box>

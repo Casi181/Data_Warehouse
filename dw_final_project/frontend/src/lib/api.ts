@@ -90,3 +90,11 @@ export async function getPredictions() {
 export async function getLatestPrices() {
   return fetchApi<import("./types").LatestPrice[]>("/data/latest-prices");
 }
+
+export async function sendChatMessage(message: string): Promise<string> {
+  const res = await fetchApi<{ reply: string }>("/chat", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+  return res.reply;
+}

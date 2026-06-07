@@ -37,10 +37,12 @@ export default function AnalyticsPage() {
   const [predAsset, setPredAsset] = useState<string | null>(null);
   const [predSource, setPredSource] = useState("YFINANCE");
 
-  const { data: assetsData } = useAssets(0, 200);
+  const { data: assetsData, isLoading: assetsLoading } = useAssets(0, 100);
   const { data: sourcesData } = useDataSources(0, 100);
   const assetIds = (assetsData?.items ?? []) as string[];
-  const sourceIds = (sourcesData?.items ?? []) as string[];
+  const sourceIds = (sourcesData?.items ?? []).length > 0
+    ? (sourcesData?.items as string[])
+    : ["YFINANCE", "BITFINEX"];
 
   // Auto-select first asset once loaded
   React.useEffect(() => {
@@ -160,7 +162,7 @@ export default function AnalyticsPage() {
       {tab === 1 && (
         <Box>
           <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end", mb: 2, flexWrap: "wrap" }}>
-            <AssetSelector assets={assetIds} value={predAsset} onChange={setPredAsset} />
+            <AssetSelector assets={assetIds} value={predAsset} onChange={setPredAsset} loading={assetsLoading} />
             <SourceSelector sources={sourceIds} value={predSource} onChange={setPredSource} />
             <Button
               variant="contained"
@@ -171,6 +173,11 @@ export default function AnalyticsPage() {
               Run Prediction
             </Button>
           </Box>
+          {!assetsLoading && assetIds.length === 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              No assets available yet. Data ingestion may still be in progress — please wait a moment and refresh.
+            </Alert>
+          )}
 
           {/* Model Evaluation Metrics Card */}
           {metrics && (

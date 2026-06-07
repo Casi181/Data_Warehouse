@@ -28,3 +28,6 @@ build/
 .pytest_cache/
 venv/
 .venv/
+
+# Hadoop (winutils for Windows Spark)
+hadoop/

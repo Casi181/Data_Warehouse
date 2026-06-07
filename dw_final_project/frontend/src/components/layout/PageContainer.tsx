@@ -1,8 +1,6 @@
 "use client";
 import React from "react";
 import Box from "@mui/material/Box";
-import Toolbar from "@mui/material/Toolbar";
-import Breadcrumbs from "./Breadcrumbs";
 
 const DRAWER_WIDTH = 280;
 
@@ -23,8 +21,6 @@ export default function PageContainer({ children }: Props) {
         bgcolor: "background.default",
       }}
     >
-      <Toolbar />
-      <Breadcrumbs />
       {children}
     </Box>
   );

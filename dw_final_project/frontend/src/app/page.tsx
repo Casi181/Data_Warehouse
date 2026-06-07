@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const { data: prices, error, isLoading } = useSWR<LatestPrice[]>(
     "/data/latest-prices",
     getLatestPrices,
-    { refreshInterval: 10000 }
+    { refreshInterval: 5000, revalidateOnFocus: true }
   );
 
   if (isLoading) return <LoadingOverlay message="Loading market data..." />;

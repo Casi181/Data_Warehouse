@@ -3,7 +3,6 @@ import React from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Drawer from "@mui/material/Drawer";
-import Toolbar from "@mui/material/Toolbar";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemButton from "@mui/material/ListItemButton";
@@ -72,7 +71,6 @@ export default function DrawerNav() {
         },
       }}
     >
-      <Toolbar />
       {sections.map((section, idx) => (
         <React.Fragment key={section.title}>
           {idx > 0 && <Divider />}

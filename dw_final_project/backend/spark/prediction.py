@@ -38,6 +38,8 @@ def run_prediction(
             "spark.jars.packages",
             "com.datastax.spark:spark-cassandra-connector_2.13:3.5.1",
         )
+        .config("spark.driver.memory", "1g")
+        .config("spark.sql.shuffle.partitions", "4")
         .getOrCreate()
     )
 
@@ -83,7 +85,7 @@ def run_prediction(
     #   - close_lag_1:   previous day's close (momentum / mean-reversion)
     #   - return_lag_1:  previous day's return (serial correlation)
 
-    window = Window.orderBy("seconds")
+    window = Window.partitionBy(F.lit(1)).orderBy("seconds")
 
     featured = (
         df.withColumn(
@@ -159,17 +161,19 @@ def run_prediction(
     # Falls back to a simple train/test split only when data is too sparse.
 
     train, test = featured.randomSplit([0.8, 0.2], seed=42)
+    train.cache()
+    test.cache()
     train_count = train.count()
     test_count = test.count()
 
     logger.info("Training with %d rows, testing with %d rows", train_count, test_count)
 
-    # Hyperparameter grid for GBT
+    # Hyperparameter grid for GBT (kept small for Docker resource constraints)
     param_grid = (
         ParamGridBuilder()
         .addGrid(gbt.maxDepth, [3, 5])
-        .addGrid(gbt.maxIter, [20, 50])
-        .addGrid(gbt.stepSize, [0.05, 0.1])
+        .addGrid(gbt.maxIter, [20])
+        .addGrid(gbt.stepSize, [0.1])
         .build()
     )
 
@@ -222,6 +226,8 @@ def run_prediction(
     )
 
     preds_df.unpersist()
+    train.unpersist()
+    test.unpersist()
     spark.stop()
 
     return {

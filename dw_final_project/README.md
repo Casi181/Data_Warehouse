@@ -6,47 +6,41 @@ A full-stack data warehouse system for ingesting, storing, analyzing, and predic
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            Docker Compose                                 │
-├────────────┬────────────┬──────────────────┬────────────────────────────┤
-│  Frontend  │  Backend   │    Cassandra     │       Spark Master         │
-│  (Next.js) │  (FastAPI) │   (Storage)      │       (Analytics)          │
-│  :3000     │  :8000     │   :9042          │       :7077 / :8080        │
-└─────┬──────┴─────┬──────┴────────┬─────────┴──────────────┬─────────────┘
-      │            │               │                         │
-      │  REST API  │   CQL Driver  │    Spark-Cassandra      │
-      ▼            ▼               ▼       Connector         ▼
-┌──────────┐ ┌──────────────────────────────────────────────────────────┐
-│  Browser │ │                     Data Flow                             │
-└──────────┘ │                                                          │
-             │  ┌─────────┐    ┌─────────────┐    ┌──────────┐         │
-             │  │Extractor│───▶│ Transformer │───▶│  Loader  │         │
-             │  │(yfinance│    │ (normalize) │    │(dedupe + │         │
-             │  │ bitfinex│    └─────────────┘    │ upsert)  │         │
-             │  │ nasdaq) │                       └─────┬────┘         │
-             │  └─────────┘                             │              │
-             │                                          ▼              │
-             │  ┌───────────────────────────────────────────────┐      │
-             │  │            Cassandra (Bi-temporal)             │      │
-             │  │  asset | data_source | data | totals | reg_*  │      │
-             │  └───────────────────────────┬───────────────────┘      │
-             │                              │                          │
-             │                    Spark ML Pipeline                     │
-             │              (Aggregation + GBT Prediction              │
-             │               with 3-fold Cross-Validation)             │
-             └──────────────────────────────────────────────────────────┘
-```
+**Services:**
+
+- Frontend (Next.js) → :3000
+- Backend (FastAPI) → :8000
+- Cassandra (Storage) → :9042
+
+**Connections:**
+
+- Browser → Frontend → Backend (REST API)
+- Backend → Cassandra (CQL driver)
+- Spark (local mode) → Cassandra (spark-cassandra-connector)
+
+**ETL Pipeline:**
+
+Extractor (yfinance, bitfinex, nasdaq) → Transformer (normalize schemas) → Loader (deduplicate + upsert) → Cassandra
+
+**Analytics Pipeline:**
+
+Cassandra → Spark Aggregation → totals table
+Cassandra → Spark GBT Prediction (3-fold CV) → regression_results table
+
+**Serving:**
+
+Cassandra → FastAPI → Next.js dashboard (auto-refreshes every 5s)
+Cassandra → FastAPI → MCP tool server → LLM assistants
+Cassandra → FastAPI → /chat endpoint → AI Assistant UI
 
 ### Key Design Decisions
 
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| Storage | Apache Cassandra | Wide-column store ideal for time-series; bi-temporal model (business_date + system_date) enables full audit trail |
-| API | FastAPI | Async-first, auto-generated OpenAPI docs, dependency injection |
-| ML | Spark MLlib (GBT) | Distributed training with cross-validation; captures non-linear price dynamics |
-| Frontend | Next.js + MUI | Server-side rendering, component library |
-| AI Assist | MCP Server | Model Context Protocol tools for LLM-driven financial queries |
+- **Storage — Apache Cassandra**: Wide-column store ideal for time-series; bi-temporal model (business_date + system_date) enables full audit trail.
+- **API — FastAPI**: Async-first, auto-generated OpenAPI docs, dependency injection.
+- **ML — Spark MLlib (GBT)**: Local-mode training with 3-fold cross-validation; captures non-linear price dynamics.
+- **Frontend — Next.js + MUI**: Hot-reload dev server, side navigation, auto-updating dashboard.
+- **AI Assistant — /chat endpoint**: Routes natural language queries to MCP tool handlers for real-time warehouse lookups.
+- **Deduplication**: Records are only written when incoming `system_date` is newer than existing — ensures idempotent re-ingestion.
 
 ---
 
@@ -54,40 +48,42 @@ A full-stack data warehouse system for ingesting, storing, analyzing, and predic
 
 ### Prerequisites
 
-- Docker & Docker Compose
-- (Optional for local dev) Python 3.12+, Node.js 18+
+- Python 3.12+
+- Node.js 18+
+- Docker (only for Cassandra)
 
-### Quick Start (Docker)
+### Quick Start
 
 ```bash
-cd dw_final_project
-docker compose up --build
+# 1. Start Cassandra
+docker run -d --name cassandra -p 9042:9042 -e CASSANDRA_CLUSTER_NAME=AcmeDW -e CASSANDRA_DC=datacenter1 cassandra:5.0
+
+# 2. Wait for Cassandra to be ready (~30s)
+docker exec cassandra cqlsh -e "DESCRIBE KEYSPACES"
+
+# 3. Start Backend (auto-ingests ~41 tickers on first run)
+cd dw_final_project/backend
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000 --app-dir .
+
+# 4. Start Frontend (in a separate terminal)
+cd dw_final_project/frontend
+npm install
+npm run dev
+```
+
+Or use the convenience script:
+
+```bash
+start.bat
 ```
 
 Services will be available at:
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8000
 - **API Docs (Swagger)**: http://localhost:8000/docs
-- **Spark Master UI**: http://localhost:8080
 
 On first boot the backend automatically ingests ~41 tickers (stocks, crypto, commodities, ETFs) from Yahoo Finance and Bitfinex.
-
-### Local Development (without Docker)
-
-```bash
-# 1. Start Cassandra (or point to an existing instance)
-docker run -d --name cassandra -p 9042:9042 cassandra:5.0
-
-# 2. Backend
-cd dw_final_project/backend
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# 3. Frontend
-cd dw_final_project/frontend
-npm install
-npm run dev
-```
 
 ### Environment Variables
 
@@ -96,7 +92,6 @@ npm run dev
 | `CASSANDRA_HOSTS` | `localhost` | Comma-separated Cassandra contact points |
 | `CASSANDRA_PORT` | `9042` | CQL native transport port |
 | `CASSANDRA_KEYSPACE` | `acme_dw` | Target keyspace |
-| `SPARK_MASTER` | `spark://localhost:7077` | Spark master URL |
 
 ---
 
@@ -131,6 +126,13 @@ curl -X POST http://localhost:8000/api/v1/ingest \
     "dataset_codes": ["AAPL", "MSFT"],
     "period": "1y"
   }'
+```
+
+### Chat with AI Assistant
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is the price of AAPL?"}'
 ```
 
 ### Run Spark aggregation
@@ -169,39 +171,32 @@ curl http://localhost:8000/api/v1/data-sources
 
 4. **Storage** — Cassandra stores data in a bi-temporal model partitioned by `(asset_id, data_source_id, business_date_year)` with clustering on `(business_date DESC, system_date DESC)`. This allows efficient range scans and full version history.
 
-5. **Analytics** — Spark reads directly from Cassandra via the spark-cassandra-connector:
+5. **Analytics** — Spark runs in local mode within the backend process:
    - **Aggregation job**: computes per-asset yearly record counts → `totals` table.
-   - **Prediction job**: engineers features (daily return, price range, volatility ratios, lag features), trains a GBT regressor with 3-fold cross-validation and hyperparameter grid search, evaluates with RMSE/MAE/R², and writes predictions back to Cassandra.
+   - **Prediction job**: engineers features (daily return, price range, volatility ratios, lag features), trains a GBT regressor with 3-fold cross-validation, evaluates with RMSE/MAE/R², and writes predictions back to Cassandra.
 
-6. **Serving** — FastAPI exposes RESTful endpoints consumed by the Next.js frontend dashboard and an MCP tool server that allows LLM assistants to query the warehouse programmatically.
+6. **Serving** — FastAPI exposes RESTful endpoints consumed by the Next.js frontend dashboard (auto-refreshes every 5s) and a chat endpoint that routes natural language queries to MCP tool handlers.
 
 ---
 
 ## Project Structure
 
-```
-dw_final_project/
-├── docker-compose.yml          # Service orchestration
-├── backend/
-│   ├── main.py                 # FastAPI app + auto-ingest lifecycle
-│   ├── config/                 # Settings & constants
-│   ├── database/               # Cassandra connection & schema init
-│   ├── etl/                    # Extract-Transform-Load pipeline
-│   │   └── providers/          # yfinance, bitfinex, nasdaq clients
-│   ├── mcp_server/             # MCP tool server for LLM integration
-│   ├── models/                 # Dataclass domain models
-│   ├── repositories/           # Cassandra data access layer
-│   ├── routers/                # FastAPI route handlers
-│   ├── schemas/                # Pydantic request/response schemas
-│   ├── services/               # Business logic layer
-│   ├── spark/                  # Spark ML jobs (aggregation, prediction)
-│   └── tests/                  # Pytest test suite
-├── frontend/
-│   └── src/
-│       ├── app/                # Next.js pages (dashboard, analytics, etc.)
-│       ├── components/         # Reusable UI components
-│       └── lib/                # API client, hooks, types
-└── scripts/
-    ├── init-cassandra.cql      # Manual CQL bootstrap script
-    └── seed-data.py            # Standalone data seeder
-```
+- **backend/main.py** — FastAPI app + auto-ingest lifecycle
+- **backend/config/** — Settings & constants
+- **backend/database/** — Cassandra connection & schema init
+- **backend/etl/** — Extract-Transform-Load pipeline
+- **backend/etl/providers/** — yfinance, bitfinex, nasdaq clients
+- **backend/mcp_server/** — MCP tool server for LLM integration
+- **backend/models/** — Dataclass domain models
+- **backend/repositories/** — Cassandra data access layer (with deduplication)
+- **backend/routers/** — FastAPI route handlers (assets, data, analytics, chat, ingestion)
+- **backend/schemas/** — Pydantic request/response schemas
+- **backend/services/** — Business logic layer
+- **backend/spark/** — Spark ML jobs (aggregation, prediction with CV)
+- **backend/tests/** — Pytest test suite
+- **frontend/src/app/** — Next.js pages (dashboard, analytics, assistant, etc.)
+- **frontend/src/components/** — Reusable UI components
+- **frontend/src/lib/** — API client, hooks, types
+- **start.bat** — One-click local startup script
+- **scripts/init-cassandra.cql** — Manual CQL bootstrap script
+- **scripts/seed-data.py** — Standalone data seeder

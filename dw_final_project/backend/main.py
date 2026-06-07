@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from database.connection import init_cassandra, shutdown_cassandra
 from database.init_schema import create_tables
-from routers import assets, data_sources, data, ingestion, analytics
+from routers import assets, data_sources, data, ingestion, analytics, chat
 from middleware.error_handler import global_exception_handler
 from middleware.request_logging import RequestLoggingMiddleware
 import logging
@@ -115,3 +115,4 @@ app.include_router(data_sources.router)
 app.include_router(data.router)
 app.include_router(ingestion.router)
 app.include_router(analytics.router)
+app.include_router(chat.router)
