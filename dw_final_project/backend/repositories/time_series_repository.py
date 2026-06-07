@@ -2,6 +2,9 @@ from repositories.base_repository import BaseRepository
 from models.time_series_model import TimeSeriesRecord
 from config.constants import BATCH_SIZE
 from datetime import date
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TimeSeriesRepository(BaseRepository):
@@ -17,8 +20,25 @@ class TimeSeriesRepository(BaseRepository):
             "WHERE asset_id = ? AND data_source_id = ? AND business_date_year = ? "
             "AND business_date >= ? AND business_date < ?"
         )
+        self._stmt_latest = self._prepare(
+            "SELECT system_date FROM data "
+            "WHERE asset_id = ? AND data_source_id = ? AND business_date_year = ? "
+            "AND business_date = ? LIMIT 1"
+        )
+
+    def _existing_system_date(self, record: TimeSeriesRecord):
+        """Return the newest system_date for this (asset, source, date) or None."""
+        rows = self._execute(self._stmt_latest, [
+            record.asset_id, record.data_source_id,
+            record.business_date_year, record.business_date,
+        ])
+        row = rows.one() if rows else None
+        return row.system_date if row else None
 
     def save(self, record: TimeSeriesRecord) -> TimeSeriesRecord:
+        existing_ts = self._existing_system_date(record)
+        if existing_ts and existing_ts >= record.system_date:
+            return record  # existing record is same or newer; skip
         self._execute(self._stmt_save, [
             record.asset_id, record.data_source_id, record.business_date_year,
             record.business_date, record.system_date,
@@ -31,18 +51,27 @@ class TimeSeriesRepository(BaseRepository):
         from cassandra.query import BatchStatement, BatchType
 
         total = 0
-        # Chunk records to avoid oversized Cassandra batches
+        skipped = 0
         for i in range(0, len(records), BATCH_SIZE):
             chunk = records[i : i + BATCH_SIZE]
             batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+            batch_count = 0
             for r in chunk:
+                existing_ts = self._existing_system_date(r)
+                if existing_ts and existing_ts >= r.system_date:
+                    skipped += 1
+                    continue  # duplicate with same-or-newer data already stored
                 batch.add(self._stmt_save, [
                     r.asset_id, r.data_source_id, r.business_date_year,
                     r.business_date, r.system_date,
                     r.values_double, r.values_int, r.values_text, r.deleted,
                 ])
-            self._execute(batch)
-            total += len(chunk)
+                batch_count += 1
+            if batch_count > 0:
+                self._execute(batch)
+            total += batch_count
+        if skipped:
+            logger.info("Deduplication: skipped %d records (already up-to-date)", skipped)
         return total
 
     def find_by_range(
