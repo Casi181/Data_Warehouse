@@ -1,0 +1,55 @@
+version: "3.9"
+services:
+  cassandra:
+    image: cassandra:5.0
+    container_name: casi-cassandra
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    environment:
+      - CASSANDRA_CLUSTER_NAME=AcmeDW
+      - CASSANDRA_DC=datacenter1
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: casi-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    environment:
+      - CASSANDRA_HOSTS=cassandra
+      - CASSANDRA_PORT=9042
+      - CASSANDRA_KEYSPACE=acme_dw
+      - SPARK_MASTER=spark://spark:7077
+
+  frontend:
+    build: ./frontend
+    container_name: casi-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+
+  spark:
+    image: apache/spark:3.5.0
+    container_name: casi-spark
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+
+volumes:
+  cassandra_data:
